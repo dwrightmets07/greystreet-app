@@ -1,6 +1,6 @@
 workflows:
   ios-simulator-build:
-    name: Build for iOS Simulator
+    name: Build for iOS Simulator (Appetize)
     max_build_duration: 60
     environment:
       xcode: latest
@@ -18,16 +18,24 @@ workflows:
           pod install --repo-update
       - name: Build (iphonesimulator, Debug) to fixed path
         script: |
-          set -e
+          set -euo pipefail
           cd ios/App
+          echo "=== List schemes/workspaces (sanity) ==="
+          xcodebuild -list -workspace App.xcworkspace
+
+          echo "=== xcodebuild (iphonesimulator) ==="
           xcodebuild \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath $PWD/build \
-            CODE_SIGNING_ALLOWED=NO | xcpretty
+            build
+
+          echo "=== After build, list Products dir ==="
+          ls -la "$PWD/build/Build/Products" || true
+          ls -la "$PWD/build/Build/Products/Debug-iphonesimulator" || true
       - name: Zip simulator .app for Appetize
         script: |
           set -e
@@ -36,8 +44,6 @@ workflows:
           ls -la ios/App/build || true
           echo "-> ios/App/build/Build/Products:"
           ls -la ios/App/build/Build/Products || true
-          echo "-> DerivedData Products:"
-          ls -la ~/Library/Developer/Xcode/DerivedData/*/Build/Products 2>/dev/null || true
 
           # Try fixed build path first
           APP_PATH=$(find ios/App/build -type d -name "*.app" -path "*/Build/Products/*-iphonesimulator/*" | head -n 1 || true)
@@ -62,6 +68,46 @@ workflows:
       - ios/App/build/Build/Products/*-iphonesimulator/Appetize-sim.zip
       - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/*-iphonesimulator/*.app
       - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/*-iphonesimulator/Appetize-sim.zip
+
+  ios-device-build:
+    name: Build for iOS Device (unsigned)
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      node: 20
+    scripts:
+      - name: Install deps & sync Capacitor
+        script: |
+          set -e
+          npm ci
+          npx cap sync ios
+      - name: Install CocoaPods
+        script: |
+          set -e
+          cd ios/App
+          pod install --repo-update
+      - name: Build (iphoneos, Release) unsigned
+        script: |
+          set -euo pipefail
+          cd ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath $PWD/build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+          echo "=== After build, list Products dir ==="
+          ls -la "$PWD/build/Build/Products" || true
+          ls -la "$PWD/build/Build/Products/Release-iphoneos" || true
+    artifacts:
+      - ios/App/build/Build/Products/Release-iphoneos/*.app
+
 publishing:
       email:
         recipients:
