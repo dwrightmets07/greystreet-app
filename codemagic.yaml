@@ -28,7 +28,7 @@ workflows:
             -destination 'platform=iOS Simulator,name=iPhone 15' \
             -derivedDataPath $PWD/build \
             CODE_SIGNING_ALLOWED=NO | xcpretty
-      - name:       - name: Zip simulator .app for Appetize
+      - name: Zip simulator .app for Appetize
         script: |
           set -e
           echo "=== Listing known build locations ==="
@@ -48,7 +48,7 @@ workflows:
           fi
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No simulator .app found. Check the xcodebuild logs above for build output."
+            echo "ERROR: No simulator .app found. Check xcodebuild logs above."
             exit 1
           fi
 
@@ -56,7 +56,6 @@ workflows:
           APP_DIR="$(dirname "$APP_PATH")"
           APP_NAME="$(basename "$APP_PATH")"
           cd "$APP_DIR"
-          # Zip with the .app at the ZIP ROOT (Appetize requirement)
           zip -r Appetize-sim.zip "$APP_NAME"
     artifacts:
       - ios/App/build/Build/Products/*-iphonesimulator/*.app
