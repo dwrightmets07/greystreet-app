@@ -1,33 +1,4 @@
 workflows:
-  ios-capacitor-build:
-    name: iOS Capacitor Build
-    max_build_duration: 60
-    environment:
-      xcode: latest
-      node: 20
-    scripts:
-      - name: Install deps & sync Capacitor
-        script: |
-          npm ci
-          npx cap sync ios
-      - name: Install CocoaPods
-        script: |
-          cd ios/App
-          pod install --repo-update
-      - name: Build iOS app (no signing)
-        script: |
-          cd ios/App
-          xcodebuild \
-            -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
-    artifacts:
-      - ios/App/build/**/*.app
-      - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/Release-iphoneos/*.app
-
   ios-simulator-build:
     name: Build for iOS Simulator
     max_build_duration: 60
@@ -43,7 +14,7 @@ workflows:
         script: |
           cd ios/App
           pod install --repo-update
-      - name: Build (iphonesimulator)
+      - name: Build (iphonesimulator, Debug)
         script: |
           cd ios/App
           xcodebuild \
@@ -53,9 +24,16 @@ workflows:
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 15' \
             CODE_SIGNING_ALLOWED=NO | xcpretty
+      - name: Zip simulator .app for Appetize
+        script: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug-iphonesimulator/*.app" | head -n 1)
+          echo "Found simulator app at: $APP_PATH"
+          cd "$(dirname "$APP_PATH")"
+          # zip so that the .app is at the ZIP ROOT (what Appetize requires)
+          zip -r Appetize-sim.zip "$(basename "$APP_PATH")"
     artifacts:
       - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/*.app
-      - ~/Library/Developer/Xcode/DerivedData/**/Logs/**/**.app
+      - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/Appetize-sim.zip
     publishing:
       email:
         recipients:
