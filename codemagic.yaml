@@ -8,33 +8,45 @@ workflows:
     scripts:
       - name: Install deps & sync Capacitor
         script: |
+          set -e
           npm ci
           npx cap sync ios
       - name: Install CocoaPods
         script: |
+          set -e
           cd ios/App
           pod install --repo-update
-      - name: Build (iphonesimulator, Debug)
+      - name: Build (iphonesimulator, Debug) to fixed path
         script: |
+          set -e
           cd ios/App
+          # Build to a deterministic folder we control
           xcodebuild \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -derivedDataPath $PWD/build \
             CODE_SIGNING_ALLOWED=NO | xcpretty
       - name: Zip simulator .app for Appetize
         script: |
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug-iphonesimulator/*.app" | head -n 1)
-          echo "Found simulator app at: $APP_PATH"
-          cd "$(dirname "$APP_PATH")"
-          # zip so that the .app is at the ZIP ROOT (what Appetize requires)
-          zip -r Appetize-sim.zip "$(basename "$APP_PATH")"
+          set -e
+          SIM_APP_DIR="ios/App/build/Build/Products/Debug-iphonesimulator"
+          echo "Looking in: $SIM_APP_DIR"
+          ls -la "$SIM_APP_DIR" || true
+          APP_NAME=$(ls "$SIM_APP_DIR" | grep '\.app$' | head -n 1)
+          if [ -z "$APP_NAME" ]; then
+            echo "ERROR: No .app found in $SIM_APP_DIR"
+            exit 1
+          fi
+          echo "Found: $APP_NAME"
+          cd "$SIM_APP_DIR"
+          # Create zip with .app at the root (Appetize requirement)
+          zip -r Appetize-sim.zip "$APP_NAME"
     artifacts:
-      - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/*.app
-      - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/Appetize-sim.zip
-    publishing:
+      - ios/App/build/Build/Products/Debug-iphonesimulator/*.app
+      - ios/App/build/Build/Products/Debug-iphonesimulator/Appetize-sim.zip    publishing:
       email:
         recipients:
           - patobrien2017@gmail.com
