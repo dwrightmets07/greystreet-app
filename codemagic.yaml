@@ -6,18 +6,26 @@ workflows:
       xcode: latest
       node: 20
     scripts:
-      - name: Install dependencies
+      - name: Install deps & sync Capacitor
         script: |
           npm ci
-          node -v
-          npm -v
-      - name: Sync Capacitor for iOS
-        script: |
           npx cap sync ios
+      - name: Install CocoaPods
+        script: |
+          cd ios/App
+          pod install --repo-update
       - name: Build iOS app (no signing)
         script: |
           cd ios/App
-          xcodebuild -scheme App -sdk iphoneos -configuration Release build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
     artifacts:
       - ios/App/build/**/*.app
     publishing:
