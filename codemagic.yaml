@@ -44,7 +44,8 @@ workflows:
           zip -r Appetize-sim.zip "$APP_NAME"
     artifacts:
       - ios/App/build/Build/Products/Debug-iphonesimulator/*.app
-      - ios/App/build/Build/Products/Debug-iphonesimulator/Appetize-sim.zippublishing:
+      - ios/App/build/Build/Products/Debug-iphonesimulator/Appetize-sim.zip
+publishing:
       email:
         recipients:
           - patobrien2017@gmail.com
