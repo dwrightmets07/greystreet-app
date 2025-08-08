@@ -1,0 +1,12 @@
+{
+  "appId": "org.greystreet.app",
+  "appName": "Grey Street",
+  "webDir": "dist",
+  "server": {
+    "url": "https://grey-street.org/",
+    "cleartext": false,
+    "allowNavigation": ["grey-street.org", "grey-street.org/*"]
+  }
+}
+
+
