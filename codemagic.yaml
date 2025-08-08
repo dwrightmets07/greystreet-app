@@ -28,23 +28,41 @@ workflows:
             -destination 'platform=iOS Simulator,name=iPhone 15' \
             -derivedDataPath $PWD/build \
             CODE_SIGNING_ALLOWED=NO | xcpretty
-      - name: Zip simulator .app for Appetize
+      - name:       - name: Zip simulator .app for Appetize
         script: |
           set -e
-          SIM_APP_DIR="ios/App/build/Build/Products/Debug-iphonesimulator"
-          echo "Looking in: $SIM_APP_DIR"
-          ls -la "$SIM_APP_DIR" || true
-          APP_NAME=$(ls "$SIM_APP_DIR" | grep '\.app$' | head -n 1)
-          if [ -z "$APP_NAME" ]; then
-            echo "ERROR: No .app found in $SIM_APP_DIR"
+          echo "=== Listing known build locations ==="
+          echo "-> ios/App/build:"
+          ls -la ios/App/build || true
+          echo "-> ios/App/build/Build/Products:"
+          ls -la ios/App/build/Build/Products || true
+          echo "-> DerivedData Products:"
+          ls -la ~/Library/Developer/Xcode/DerivedData/*/Build/Products 2>/dev/null || true
+
+          # Try fixed build path first
+          APP_PATH=$(find ios/App/build -type d -name "*.app" -path "*/Build/Products/*-iphonesimulator/*" | head -n 1 || true)
+
+          # Fallback to DerivedData if not found
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -type d -name "*.app" -path "*/Build/Products/*-iphonesimulator/*" | head -n 1 || true)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No simulator .app found. Check the xcodebuild logs above for build output."
             exit 1
           fi
-          echo "Found: $APP_NAME"
-          cd "$SIM_APP_DIR"
+
+          echo "Found simulator app at: $APP_PATH"
+          APP_DIR="$(dirname "$APP_PATH")"
+          APP_NAME="$(basename "$APP_PATH")"
+          cd "$APP_DIR"
+          # Zip with the .app at the ZIP ROOT (Appetize requirement)
           zip -r Appetize-sim.zip "$APP_NAME"
     artifacts:
-      - ios/App/build/Build/Products/Debug-iphonesimulator/*.app
-      - ios/App/build/Build/Products/Debug-iphonesimulator/Appetize-sim.zip
+      - ios/App/build/Build/Products/*-iphonesimulator/*.app
+      - ios/App/build/Build/Products/*-iphonesimulator/Appetize-sim.zip
+      - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/*-iphonesimulator/*.app
+      - ~/Library/Developer/Xcode/DerivedData/**/Build/Products/*-iphonesimulator/Appetize-sim.zip
 publishing:
       email:
         recipients:
