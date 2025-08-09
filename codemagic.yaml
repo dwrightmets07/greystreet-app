@@ -107,12 +107,12 @@ workflows:
           ls -la "$PWD/build/Build/Products/Release-iphoneos" || true
     artifacts:
       - ios/App/build/Build/Products/Release-iphoneos/*.app
-workflows:
+
   ios-testflight:
     name: iOS TestFlight (signed)
     max_build_duration: 60
     integrations:
-      app_store_connect: Grey Street API   # <-- paste EXACT name from Integrations
+      app_store_connect: "Grey Street API"   # EXACT name from Teams → Integrations (quoted)
     environment:
       xcode: latest
       node: 20
@@ -141,7 +141,6 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-publishing:
       email:
         recipients:
           - patobrien2017@gmail.com
