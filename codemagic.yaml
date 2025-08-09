@@ -93,7 +93,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing   # <-- must match your env var group name in Codemagic
+        - ios_signing   # must match your env var group name
     scripts:
       - name: Install deps & sync Capacitor
         script: |
@@ -123,7 +123,7 @@ workflows:
           xcode-project build-ipa --workspace App.xcworkspace --scheme App --archive-flags="-destination 'generic/platform=iOS'"
     publishing:
       app_store_connect:
-        auth: api_key
+        # No 'auth' key — using direct API key fields
         api_key:
           key: $APP_STORE_CONNECT_PRIVATE_KEY
           key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
@@ -132,3 +132,4 @@ workflows:
       email:
         recipients:
           - patobrien2017@gmail.com
+
