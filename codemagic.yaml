@@ -17,11 +17,10 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
-      - name: Build (iphonesimulator, Debug) to fixed path
+      - name: Build (iphonesimulator, Debug)
         script: |
           set -euo pipefail
           cd ios/App
-          xcodebuild -list -workspace App.xcworkspace
           xcodebuild \
             -workspace App.xcworkspace \
             -scheme App \
@@ -79,12 +78,12 @@ workflows:
     name: iOS TestFlight (signed)
     max_build_duration: 60
     integrations:
-      app_store_connect: "ASC"   # <-- EXACT name of your App Store Connect API key
+      app_store_connect: "ASC"   # <-- change if your ASC integration name differs
     environment:
       xcode: latest
       node: 20
       vars:
-        PROFILE_NAME: "Greystreet_Prod_AppStore"   # <-- EXACT profile name shown in Codemagic Signing identities
+        PROFILE_NAME: "GreyStreet_Prod_Profile"   # <-- EXACT name as shown in Signing identities
         BUNDLE_ID: "org.greystreet.app"
     scripts:
       - name: Install deps & build web + sync Capacitor
@@ -98,28 +97,27 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
-      - name: Import signing certificates (.p12)
+      - name: Import uploaded certificate
         script: |
           set -e
-          # Imports uploaded .p12 into the keychain
+          # Imports the .p12 you uploaded under Signing identities
           keychain add-certificates
           echo "== Code signing identities =="
           security find-identity -v -p codesigning || true
-      - name: Apply provisioning profiles
+      - name: Apply uploaded provisioning profile
         script: |
           set -e
-          # Installs uploaded .mobileprovision and maps it to the Xcode project
+          # Installs and maps the .mobileprovision you uploaded
           xcode-project use-profiles
           echo "== Installed profiles =="
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
-      - name: Debug signing settings (post-apply)
+      - name: Debug signing (post-apply)
         script: |
           set -e
           cd ios/App
-          echo "=== Effective signing settings ==="
           xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | \
-            egrep 'PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM' || true
-      - name: Build signed IPA (force profile by name)
+            egrep 'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER' || true
+      - name: Build signed IPA (force profile name)
         script: |
           set -euo pipefail
           cd ios/App
@@ -127,6 +125,9 @@ workflows:
             --workspace App.xcworkspace \
             --scheme App \
             --archive-flags="-destination 'generic/platform=iOS' CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER='${PROFILE_NAME}'"
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - ios/App/build/export/*.ipa
     publishing:
       app_store_connect:
         auth: integration
@@ -134,5 +135,3 @@ workflows:
       email:
         recipients:
           - patobrien2017@gmail.com
-
-
