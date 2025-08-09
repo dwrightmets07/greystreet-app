@@ -83,7 +83,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1           # <-- MUST contain: P12_BASE64, P12_PASSWORD, PROFILE_BASE64
+        - ios_signing1           # MUST contain: P12_BASE64, P12_PASSWORD, PROFILE_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_NAME: "GreyStreet_Prod_Profile"
@@ -110,7 +110,7 @@ workflows:
             echo "ERROR: P12_BASE64 or PROFILE_BASE64 is empty. Check env group ios_signing1."
             exit 1
           fi
-          echo "$P12_BASE64"   | base64 --decode > $CM_BUILD_DIR/signing/cert.p12
+          echo "$P12_BASE64" | base64 --decode > $CM_BUILD_DIR/signing/cert.p12
           echo "$PROFILE_BASE64" | base64 --decode > $CM_BUILD_DIR/signing/${PROFILE_NAME}.mobileprovision
           echo "== Signing dir contents =="
           ls -la $CM_BUILD_DIR/signing
@@ -162,10 +162,10 @@ workflows:
           echo "Using profile UUID: $PROFILE_UUID"
           echo "PROFILE_UUID=$PROFILE_UUID" > $CM_BUILD_DIR/profile_uuid.env
 
-      - name: Apply profile to project (only App target)
+      - name: Apply profile to project (App target only)
         script: |
           set -e
-          # Map installed profiles to the Xcode project automatically
+          # Map installed profiles to the Xcode project; Pods remain automatic (no profile)
           xcode-project use-profiles
 
       - name: Debug signing (pre-archive)
@@ -175,7 +175,7 @@ workflows:
           xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | \
             egrep 'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM' || true
 
-     - name: Build signed IPA (Distribution identity + team)
+      - name: Build signed IPA (Distribution identity + team)
         script: |
           set -euo pipefail
           cd ios/App
