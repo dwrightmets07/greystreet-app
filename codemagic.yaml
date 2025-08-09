@@ -78,12 +78,12 @@ workflows:
     name: iOS TestFlight (signed)
     max_build_duration: 60
     integrations:
-      app_store_connect: "ASC"   # change if your ASC integration name differs
+      app_store_connect: "ASC"   # <-- change if your ASC integration name differs
     environment:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1           # <-- your actual env var group (P12_BASE64, P12_PASSWORD, PROFILE_BASE64)
+        - ios_signing1           # <-- MUST contain: P12_BASE64, P12_PASSWORD, PROFILE_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_NAME: "GreyStreet_Prod_Profile"
@@ -102,13 +102,20 @@ workflows:
           cd ios/App
           pod install --repo-update
 
-      - name: Write signing files from env
+      - name: Write signing files from env (with checks)
         script: |
           set -e
           mkdir -p $CM_BUILD_DIR/signing
-          echo "$P12_BASE64" | base64 --decode > $CM_BUILD_DIR/signing/cert.p12
+          if [ -z "${P12_BASE64:-}" ] || [ -z "${PROFILE_BASE64:-}" ]; then
+            echo "ERROR: P12_BASE64 or PROFILE_BASE64 is empty. Check env group ios_signing1."
+            exit 1
+          fi
+          echo "$P12_BASE64"   | base64 --decode > $CM_BUILD_DIR/signing/cert.p12
           echo "$PROFILE_BASE64" | base64 --decode > $CM_BUILD_DIR/signing/${PROFILE_NAME}.mobileprovision
+          echo "== Signing dir contents =="
           ls -la $CM_BUILD_DIR/signing
+          echo "cert.p12 size: $(stat -f%z $CM_BUILD_DIR/signing/cert.p12) bytes"
+          echo "${PROFILE_NAME}.mobileprovision size: $(stat -f%z $CM_BUILD_DIR/signing/${PROFILE_NAME}.mobileprovision) bytes"
 
       - name: Import certificate to keychain
         script: |
@@ -121,13 +128,37 @@ workflows:
           echo "== Code signing identities =="
           security find-identity -v -p codesigning build.keychain || true
 
-      - name: Install provisioning profile & capture UUID
+      - name: Install provisioning profile & capture UUID (robust)
         script: |
           set -e
+          PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_NAME}.mobileprovision"
+          if [ ! -f "$PROFILE_SRC" ]; then
+            echo "ERROR: Profile not found at $PROFILE_SRC"
+            exit 1
+          fi
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $CM_BUILD_DIR/signing/${PROFILE_NAME}.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-          PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -n 1)
-          PROFILE_UUID=$(security cms -D -i "$PROFILE_PATH" | /usr/libexec/PlistBuddy -c 'Print:UUID' /dev/stdin)
+          cp "$PROFILE_SRC" ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo "== Installed profiles =="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+
+          TMP_PLIST="$CM_BUILD_DIR/profile.plist"
+          security cms -D -i "$PROFILE_SRC" > "$TMP_PLIST" || { echo "ERROR: Failed to parse mobileprovision."; exit 1; }
+
+          echo "First 10 lines of parsed plist:"
+          head -n 10 "$TMP_PLIST" || true
+
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" 2>/dev/null || echo "")
+          echo "application-identifier: $APP_ID"
+          case "$APP_ID" in
+            *"$BUNDLE_ID") ;;
+            *) echo "ERROR: Profile app id ($APP_ID) does not match bundle ($BUNDLE_ID)"; exit 1 ;;
+          esac
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST" 2>/dev/null || echo "")
+          if [ -z "$PROFILE_UUID" ]; then
+            echo "ERROR: Could not extract UUID from profile."
+            exit 1
+          fi
           echo "Using profile UUID: $PROFILE_UUID"
           echo "PROFILE_UUID=$PROFILE_UUID" > $CM_BUILD_DIR/profile_uuid.env
 
