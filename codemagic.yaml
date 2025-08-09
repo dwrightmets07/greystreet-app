@@ -162,6 +162,12 @@ workflows:
           echo "Using profile UUID: $PROFILE_UUID"
           echo "PROFILE_UUID=$PROFILE_UUID" > $CM_BUILD_DIR/profile_uuid.env
 
+      - name: Apply profile to project (only App target)
+        script: |
+          set -e
+          # Map installed profiles to the Xcode project automatically
+          xcode-project use-profiles
+
       - name: Debug signing (pre-archive)
         script: |
           set -e
@@ -169,10 +175,9 @@ workflows:
           xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | \
             egrep 'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM' || true
 
-           - name: Build signed IPA (force profile UUID + team)
+     - name: Build signed IPA (Distribution identity + team)
         script: |
           set -euo pipefail
-          source $CM_BUILD_DIR/profile_uuid.env
           cd ios/App
           xcodebuild \
             -workspace App.xcworkspace \
@@ -182,7 +187,6 @@ workflows:
             -archivePath $PWD/build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} \
-            PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain build.keychain" \
             archive
