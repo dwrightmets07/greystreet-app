@@ -111,6 +111,8 @@ workflows:
   ios-testflight:
     name: iOS TestFlight (signed)
     max_build_duration: 60
+    integrations:
+      app_store_connect: CodemagicKey   # <-- EXACT name from Teams → Integrations
     environment:
       xcode: latest
       node: 20
@@ -128,6 +130,7 @@ workflows:
       - name: Fetch signing files
         script: |
           set -e
+          # Will use the integration above to auth
           app-store-connect fetch-signing-files "org.greystreet.app" --type IOS_APP_STORE --create
           xcode-project use-profiles
       - name: Build signed IPA
@@ -137,7 +140,7 @@ workflows:
           xcode-project build-ipa --workspace App.xcworkspace --scheme App --archive-flags="-destination 'generic/platform=iOS'"
     publishing:
       app_store_connect:
-        authentication: integration
+        auth: integration
         submit_to_testflight: true
 publishing:
       email:
