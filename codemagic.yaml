@@ -93,7 +93,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing   # must match your env var group name
+        - asc_login   # <-- the env var group you just created
     scripts:
       - name: Install deps & sync Capacitor
         script: |
@@ -105,15 +105,10 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
-      - name: Debug env (presence only)
+      - name: Fetch signing files (auto)
         script: |
           set -e
-          echo "Issuer present? ${APP_STORE_CONNECT_ISSUER_ID:+yes}"
-          echo "Key ID present? ${APP_STORE_CONNECT_KEY_IDENTIFIER:+yes}"
-          echo "Private key present? ${APP_STORE_CONNECT_PRIVATE_KEY:+yes}"
-      - name: Fetch signing files
-        script: |
-          set -e
+          # Creates/fetches certs & provisioning for bundle id below
           app-store-connect fetch-signing-files "org.greystreet.app" --type IOS_APP_STORE --create
           xcode-project use-profiles
       - name: Build signed IPA
@@ -123,11 +118,9 @@ workflows:
           xcode-project build-ipa --workspace App.xcworkspace --scheme App --archive-flags="-destination 'generic/platform=iOS'"
     publishing:
       app_store_connect:
-        # No 'auth' key — using direct API key fields
-        api_key:
-          key: $APP_STORE_CONNECT_PRIVATE_KEY
-          key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-          issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        # Apple ID + app-specific password auth (no API key)
+        apple_id: $APPLE_ID
+        password: $APP_SPECIFIC_PASSWORD
         submit_to_testflight: true
       email:
         recipients:
