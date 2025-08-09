@@ -114,8 +114,6 @@ workflows:
     environment:
       xcode: latest
       node: 20
-      groups:
-        - ios_signing   # <-- the env var group that contains the three secrets
     scripts:
       - name: Install deps & sync Capacitor
         script: |
@@ -127,11 +125,9 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
-      - name: Fetch signing files from App Store Connect
+      - name: Fetch signing files
         script: |
           set -e
-          # Uses the env vars from your group:
-          # APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY
           app-store-connect fetch-signing-files "org.greystreet.app" --type IOS_APP_STORE --create
           xcode-project use-profiles
       - name: Build signed IPA
@@ -141,14 +137,8 @@ workflows:
           xcode-project build-ipa --workspace App.xcworkspace --scheme App --archive-flags="-destination 'generic/platform=iOS'"
     publishing:
       app_store_connect:
+        authentication: integration
         submit_to_testflight: true
-        api_key:
-          issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-          key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-          key: $APP_STORE_CONNECT_PRIVATE_KEY
-
-
-
 publishing:
       email:
         recipients:
