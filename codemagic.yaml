@@ -92,7 +92,7 @@ workflows:
     name: iOS TestFlight (signed)
     max_build_duration: 60
     integrations:
-      app_store_connect: "ASC"   # <-- replace with your EXACT integration name if different
+      app_store_connect: "ASC"   # <-- EXACT name of your App Store Connect API key in Team → Integrations
     environment:
       xcode: latest
       node: 20
@@ -108,10 +108,10 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
-      - name: Fetch signing files
+      - name: Use uploaded signing assets
         script: |
           set -e
-          app-store-connect fetch-signing-files "org.greystreet.app" --type IOS_APP_STORE --create
+          # Uses the .p12 + .mobileprovision you uploaded in "Signing identities" for this app
           xcode-project use-profiles
       - name: Build signed IPA
         script: |
