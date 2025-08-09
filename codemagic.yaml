@@ -116,29 +116,35 @@ workflows:
           echo "cert.p12 size: $(stat -f%z $CM_BUILD_DIR/signing/cert.p12) bytes"
           echo "${PROFILE_NAME}.mobileprovision size: $(stat -f%z $CM_BUILD_DIR/signing/${PROFILE_NAME}.mobileprovision) bytes"
 
-      - name: Import certificate to keychain (set default, search list, ACL)
+      - name: Import certificate to keychain (default, search list, ACL)
         script: |
           set -e
           KEYCHAIN=build.keychain
           KEYCHAIN_PATH=~/Library/Keychains/${KEYCHAIN}-db
 
-          # Fresh keychain
+          # Fresh keychain, make default, restrict search list to it
           security create-keychain -p "" "$KEYCHAIN"
           security unlock-keychain -p "" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
-
-          # Make it the ONLY one in the search list (avoids grabbing keys from login)
           security list-keychains -s "$KEYCHAIN"
           security default-keychain -s "$KEYCHAIN"
 
-          # Import our Distribution cert (.p12)
+          # Import Distribution cert (.p12)
           security import $CM_BUILD_DIR/signing/cert.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
 
-          # Install Apple WWDR G4 intermediate (required on some runners)
-          curl -fsSL https://developer.apple.com/certificationauthority/AppleWWDRCAG4.cer -o $CM_BUILD_DIR/signing/AppleWWDRCAG4.cer
-          security import $CM_BUILD_DIR/signing/AppleWWDRCAG4.cer -k "$KEYCHAIN" -T /usr/bin/codesign -T /usr/bin/security || true
+          # Try to install Apple WWDR G4 intermediate if reachable, but don't fail if not
+          set +e
+          curl -fsSL https://www.apple.com/certificateauthority/AppleWWDRCAG4.cer -o $CM_BUILD_DIR/signing/AppleWWDRCAG4.cer
+          CURL_STATUS=$?
+          set -e
+          if [ "$CURL_STATUS" -eq 0 ]; then
+            security import $CM_BUILD_DIR/signing/AppleWWDRCAG4.cer -k "$KEYCHAIN" -T /usr/bin/codesign -T /usr/bin/security || true
+            echo "Imported Apple WWDR G4 intermediate."
+          else
+            echo "WWDR G4 download not available; continuing."
+          fi
 
-          # Allow non-interactive access to the private key from codesign
+          # Allow non-interactive access to the private key
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
 
           echo "== Code signing identities (in $KEYCHAIN) =="
