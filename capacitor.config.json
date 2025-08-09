@@ -5,9 +5,10 @@
   "server": {
     "url": "https://grey-street.org/",
     "cleartext": false,
-    "allowNavigation": ["grey-street.org", "grey-street.org/*"
-    "appId": "org.greystreet.app", "appName": "Grey Street" }
-
+    "allowNavigation": [
+      "grey-street.org",
+      "grey-street.org/*"
+    ]
   }
 }
 
