@@ -169,7 +169,7 @@ workflows:
           xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | \
             egrep 'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM' || true
 
-      - name: Build signed IPA (force profile UUID + team)
+           - name: Build signed IPA (force profile UUID + team)
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/profile_uuid.env
@@ -183,7 +183,10 @@ workflows:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} \
             PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            OTHER_CODE_SIGN_FLAGS="--keychain build.keychain" \
             archive
+
           cat > $PWD/exportOptions.plist <<EOF
           {
             "method": "app-store",
@@ -194,6 +197,7 @@ workflows:
             "compileBitcode": false
           }
           EOF
+
           xcodebuild -exportArchive \
             -archivePath $PWD/build/App.xcarchive \
             -exportOptionsPlist $PWD/exportOptions.plist \
