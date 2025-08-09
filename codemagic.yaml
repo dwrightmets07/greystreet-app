@@ -92,7 +92,7 @@ workflows:
     name: iOS TestFlight (signed)
     max_build_duration: 60
     integrations:
-      app_store_connect: "ASC"   # <-- EXACT name of your App Store Connect API key in Team → Integrations
+      app_store_connect: "ASC"   # <-- put your exact ASC integration name here
     environment:
       xcode: latest
       node: 20
@@ -111,8 +111,15 @@ workflows:
       - name: Use uploaded signing assets
         script: |
           set -e
-          # Uses the .p12 + .mobileprovision you uploaded in "Signing identities" for this app
+          # Applies the .p12 and .mobileprovision you uploaded in "Signing identities"
           xcode-project use-profiles
+      - name: Debug signing settings (post-apply)
+        script: |
+          set -e
+          cd ios/App
+          echo "=== Effective signing settings ==="
+          xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | \
+            egrep 'PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM' || true
       - name: Build signed IPA
         script: |
           set -euo pipefail
@@ -125,3 +132,4 @@ workflows:
       email:
         recipients:
           - patobrien2017@gmail.com
+
