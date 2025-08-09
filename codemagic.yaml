@@ -93,7 +93,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing   # <-- must match the group name you created in Codemagic
+        - ios_signing   # <-- must match your env var group name in Codemagic
     scripts:
       - name: Install deps & sync Capacitor
         script: |
@@ -105,6 +105,12 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
+      - name: Debug env (presence only)
+        script: |
+          set -e
+          echo "Issuer present? ${APP_STORE_CONNECT_ISSUER_ID:+yes}"
+          echo "Key ID present? ${APP_STORE_CONNECT_KEY_IDENTIFIER:+yes}"
+          echo "Private key present? ${APP_STORE_CONNECT_PRIVATE_KEY:+yes}"
       - name: Fetch signing files
         script: |
           set -e
@@ -117,11 +123,12 @@ workflows:
           xcode-project build-ipa --workspace App.xcworkspace --scheme App --archive-flags="-destination 'generic/platform=iOS'"
     publishing:
       app_store_connect:
-        submit_to_testflight: true
+        auth: api_key
         api_key:
-          issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-          key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
           key: $APP_STORE_CONNECT_PRIVATE_KEY
+          key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+          issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
       email:
         recipients:
           - patobrien2017@gmail.com
