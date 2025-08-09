@@ -78,12 +78,12 @@ workflows:
     name: iOS TestFlight (signed)
     max_build_duration: 60
     integrations:
-      app_store_connect: "ASC"   # <-- change if your ASC integration name differs
+      app_store_connect: "ASC"   # change if your ASC integration name differs
     environment:
       xcode: latest
       node: 20
       groups:
-        - local_signing          # <-- must contain: P12_BASE64, P12_PASSWORD, PROFILE_BASE64
+        - ios_signing1           # <-- your actual env var group (P12_BASE64, P12_PASSWORD, PROFILE_BASE64)
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_NAME: "GreyStreet_Prod_Profile"
