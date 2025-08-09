@@ -114,10 +114,8 @@ workflows:
     environment:
       xcode: latest
       node: 20
-      vars:
-        APP_STORE_CONNECT_ISSUER_ID: Encrypted(From UI)
-        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(From UI)
-        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(From UI)
+      groups:
+        - ios_signing   # <-- the env var group that contains the three secrets
     scripts:
       - name: Install deps & sync Capacitor
         script: |
@@ -132,21 +130,23 @@ workflows:
       - name: Fetch signing files from App Store Connect
         script: |
           set -e
-          # This will create (or fetch) the iOS App Store provisioning profile and certificate for the bundle id below
+          # Uses the env vars from your group:
+          # APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY
           app-store-connect fetch-signing-files "org.greystreet.app" --type IOS_APP_STORE --create
           xcode-project use-profiles
       - name: Build signed IPA
         script: |
           set -euo pipefail
           cd ios/App
-          # Codemagic injects signing via the fetched profiles/certs
           xcode-project build-ipa --workspace App.xcworkspace --scheme App --archive-flags="-destination 'generic/platform=iOS'"
     publishing:
       app_store_connect:
         submit_to_testflight: true
-    api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-    key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-    issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        api_key:
+          issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+          key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+          key: $APP_STORE_CONNECT_PRIVATE_KEY
+
 
 
 publishing:
