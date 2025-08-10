@@ -1,17 +1,18 @@
 workflows:
   ios-adhoc:
-    name: iOS Ad Hoc (direct device install)
+    name: iOS Ad Hoc (diagnose install)
     max_build_duration: 60
     integrations:
       app_store_connect: "ASC"
     environment:
       xcode: latest
       node: 20
-      groups: [ios_signing1]   # must contain: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
+      groups: [ios_signing1]   # contains: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
         DEVELOPMENT_TEAM: "J5K98H247G"
+
     scripts:
       - name: Install deps & build web + sync Capacitor
         script: |
@@ -47,14 +48,14 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
 
-      - name: Install Ad Hoc profile & apply to App target; keep Pods Automatic
+      - name: Install Ad Hoc profile & keep Pods Automatic
         script: |
           set -e
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PROFILE_SRC" ~/Library/MobileDevice/Provisioning\ Profiles/
 
-          # Map profile to App target only (Codemagic helper)
+          # Map profile to App target only
           xcode-project use-profiles
 
           # Ensure Pods targets don't have manual profiles
@@ -70,7 +71,7 @@ workflows:
           cd ios/App
           xcodebuild -workspace App.xcworkspace -scheme App -configuration Release clean
 
-      - name: Archive (no profile flag)
+      - name: Archive
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
@@ -96,16 +97,28 @@ workflows:
           PROV_PLIST="$CM_BUILD_DIR/embedded_profile.plist"
           security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$PROV_PLIST"
           echo "=== PROFILE BASICS ==="
-          /usr/libexec/PlistBuddy -c "Print :Name" "$PROV_PLIST" || true
+          echo -n "Name: "; /usr/libexec/PlistBuddy -c "Print :Name" "$PROV_PLIST" || true
           echo "UUID: $(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROV_PLIST" || true)"
           echo "TeamID: $(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$PROV_PLIST" || true)"
           echo "AppID:  $(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROV_PLIST" || true)"
           echo "ProvisionedDevices (first 5):"
           /usr/libexec/PlistBuddy -c "Print :ProvisionedDevices" "$PROV_PLIST" 2>/dev/null | head -n 10 || echo "No devices list (not Ad Hoc?)"
-          echo "Total devices:"
-          /usr/libexec/PlistBuddy -c "Print :ProvisionedDevices" "$PROV_PLIST" 2>/dev/null | wc -l || true
+          echo "Total devices:"; /usr/libexec/PlistBuddy -c "Print :ProvisionedDevices" "$PROV_PLIST" 2>/dev/null | wc -l || true
 
-      - name: Manually package Ad Hoc IPA (re-sign frameworks w/o profiles)
+      - name: Dump app entitlements & Info.plist (for install diagnostics)
+        script: |
+          set -e
+          ARCHIVE="ios/App/build/App.xcarchive"
+          APP_DIR="$ARCHIVE/Products/Applications/App.app"
+          echo "=== APP ENTITLEMENTS (codesign) ==="
+          /usr/bin/codesign -d --entitlements :- "$APP_DIR/App" || true
+          echo "=== INFO.PLIST KEYS OF INTEREST ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_DIR/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP_DIR/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :UIRequiredDeviceCapabilities" "$APP_DIR/Info.plist" 2>/dev/null || echo "No UIRequiredDeviceCapabilities"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$APP_DIR/Info.plist" 2>/dev/null || true
+
+      - name: Package Ad Hoc IPA (clean re-sign)
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
