@@ -65,11 +65,12 @@ workflows:
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
           esac
+          # Wire the profile to the App target only; Pods remain Automatic
           xcode-project use-profiles
           cd ios/App
           xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | egrep "PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM" || true
 
-      - name: Clean before archive
+      - name: Clean before build
         script: |
           set -e
           cd ios/App
@@ -82,29 +83,17 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
           echo "CFBundleVersion set to $BUILD_TS"
 
-      - name: Build signed Ad Hoc archive
+      - name: Build & export Ad Hoc IPA via helper (avoids framework profile errors)
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
           cd ios/App
-          xcodebuild \
-            -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath $PWD/build/App.xcarchive \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} \
-            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
-            archive
-
-      - name: Export Ad Hoc IPA (explicit signing options)
-        script: |
-          set -e
-          cd ios/App
-          cat > $PWD/exportOptions.plist <<'EOF'
+          # Use Codemagic helper to handle export cleanly
+          xcode-project build-ipa \
+            --workspace App.xcworkspace \
+            --scheme App \
+            --archive-flags="-destination 'generic/platform=iOS' CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} CODE_SIGN_IDENTITY='Apple Distribution' OTHER_CODE_SIGN_FLAGS='--keychain $KEYCHAIN_PATH'" \
+            --export-options-plist "$(cat <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -133,21 +122,18 @@ workflows:
             </dict>
           </plist>
           EOF
+          )"
 
-          xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
-            -exportOptionsPlist $PWD/exportOptions.plist \
-            -exportPath $PWD/build/export
-
-      - name: Print where your IPA is
+      - name: Show exported files
         script: |
           set -e
-          ls -la ios/App/build/export
-          echo "Ad Hoc IPA ready at ios/App/build/export/"
+          ls -la ios/App/build || true
+          ls -la ios/App/build/ipa || true
+          ls -la ios/App/build/export || true
 
     artifacts:
-      - ios/App/build/export/*.ipa
-      - ios/App/build/export/*.dSYM.zip
+      - ios/App/build/**/*.ipa
+      - ios/App/build/**/*.dSYM.zip
 
     publishing:
       email:
