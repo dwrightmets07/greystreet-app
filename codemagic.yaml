@@ -182,9 +182,10 @@ workflows:
       - name: Set unique build number
         script: |
           set -e
-          # Write CM_BUILD_ID into CFBundleVersion so each upload is unique
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $CM_BUILD_ID" ios/App/App/Info.plist
-          echo "CFBundleVersion set to $CM_BUILD_ID"
+          # Use UTC timestamp for a valid integer CFBundleVersion (YYYYMMDDHHMM)
+          BUILD_TS=$(date -u +%Y%m%d%H%M)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
+          echo "CFBundleVersion set to $BUILD_TS"
 
       - name: Build signed IPA (Distribution identity + team)
         script: |
@@ -237,4 +238,3 @@ workflows:
       email:
         recipients:
           - patobrien2017@gmail.com
-
