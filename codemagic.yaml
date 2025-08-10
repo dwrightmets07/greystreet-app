@@ -65,19 +65,8 @@ workflows:
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
           esac
-          # Wire profile to App target only
+          # Wire the profile to the App target only; Pods remain Automatic
           xcode-project use-profiles
-
-      - name: Ensure Pods have NO provisioning profile (scrub Pods project)
-        script: |
-          set -e
-          PBX="ios/App/Pods/Pods.xcodeproj/project.pbxproj"
-          cp "$PBX" "$PBX.bak" || true
-          # Remove any explicit provisioning profile specifier lines in Pods
-          /usr/bin/sed -i '' '/PROVISIONING_PROFILE_SPECIFIER = /d' "$PBX" || true
-          # Force Pods code sign style to Automatic (if any Manual slipped in)
-          /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g' "$PBX" || true
-          echo "Scrubbed Pods provisioning settings."
 
       - name: Clean before build
         script: |
@@ -110,48 +99,57 @@ workflows:
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             archive
 
-      - name: Export Ad Hoc IPA (map profile only for app bundle id)
+      - name: 🔧 Manually package Ad Hoc IPA (re-sign frameworks w/o profiles)
         script: |
-          set -e
+          set -euo pipefail
+          source $CM_BUILD_DIR/keychain_path.env
           cd ios/App
-          cat > exportOptions.plist <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-            <dict>
-              <key>method</key>
-              <string>ad-hoc</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>teamID</key>
-              <string>J5K98H247G</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                <key>org.greystreet.app</key>
-                <string>GreyStreet_AdHoc_Profile</string>
-              </dict>
-              <key>stripSwiftSymbols</key>
-              <true/>
-              <key>compileBitcode</key>
-              <false/>
-            </dict>
-          </plist>
-          EOF
 
-          xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
-            -exportOptionsPlist $PWD/exportOptions.plist \
-            -exportPath $PWD/build/export
+          ARCHIVE="$PWD/build/App.xcarchive"
+          APP_PATH="$ARCHIVE/Products/Applications/App.app"
+          OUT_DIR="$PWD/build/adhoc"
+          ENT_PLIST="$PWD/entitlements.plist"
+          IDENTITY="Apple Distribution: Patrick Obrien (J5K98H247G)"
+          PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
 
-      - name: Print where your IPA is
-        script: |
-          set -e
-          ls -la ios/App/build/export
-          echo "Ad Hoc IPA ready at ios/App/build/export/"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: App.app not found in archive."
+            exit 1
+          fi
+
+          # Embed Ad Hoc profile into the app
+          cp "$PROFILE_SRC" "$APP_PATH/embedded.mobileprovision"
+
+          # Extract entitlements from the archived app binary
+          /usr/bin/codesign -d --entitlements :- "$APP_PATH/App" > "$ENT_PLIST"
+
+          # Re-sign all embedded frameworks WITHOUT any provisioning profile
+          if [ -d "$APP_PATH/Frameworks" ]; then
+            find "$APP_PATH/Frameworks" -type d -name "*.framework" | while read -r FRAME; do
+              echo "Re-signing framework: $FRAME"
+              /usr/bin/codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN_PATH" "$FRAME"
+            done
+          fi
+
+          # Re-sign the main app with entitlements (no profile flag here)
+          echo "Re-signing app binary with entitlements"
+          /usr/bin/codesign --force --sign "$IDENTITY" --entitlements "$ENT_PLIST" --keychain "$KEYCHAIN_PATH" "$APP_PATH"
+
+          # Verify code signatures
+          /usr/bin/codesign --verify --deep --strict "$APP_PATH" || { echo "codesign verify failed"; exit 1; }
+
+          # Create IPA: Payload/App.app zipped
+          rm -rf "$OUT_DIR"
+          mkdir -p "$OUT_DIR/Payload"
+          cp -R "$APP_PATH" "$OUT_DIR/Payload/App.app"
+          (cd "$OUT_DIR" && zip -yr "App-AdHoc.ipa" "Payload")
+
+          echo "IPA created at: $OUT_DIR/App-AdHoc.ipa"
+          ls -la "$OUT_DIR"
 
     artifacts:
-      - ios/App/build/export/*.ipa
-      - ios/App/build/export/*.dSYM.zip
+      - ios/App/build/adhoc/App-AdHoc.ipa
+      - ios/App/build/**/*.dSYM.zip
 
     publishing:
       email:
