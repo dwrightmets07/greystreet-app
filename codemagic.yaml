@@ -8,9 +8,9 @@ workflows:
       vars:
         BUNDLE_ID: "org.greystreet.app"
         DEVELOPMENT_TEAM: "J5K98H247G"
-        IOS_WORKSPACE: "ios/App/App.xcworkspace"
+        IOS_WORKSPACE: "App.xcworkspace"   # << changed
         IOS_SCHEME: "App"
-        DEV_PROFILE_NAME: "GreyStreet_Dev_Profile"   # must match the profile name you uploaded
+        DEV_PROFILE_NAME: "GreyStreet_Dev_Profile"
     scripts:
       - name: Install deps, build web, sync Capacitor
         script: |
@@ -24,8 +24,6 @@ workflows:
           set -e
           cd ios/App
           pod install --repo-update
-
-      # (Removed the use-profiles step)
 
       - name: Bump build number & clean
         script: |
