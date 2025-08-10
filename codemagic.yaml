@@ -1,5 +1,6 @@
-  ios-adhoc-diagnose:
-    name: iOS Ad Hoc (diagnostic build)
+workflows:
+  ios-adhoc:
+    name: iOS Ad Hoc (direct device install)
     max_build_duration: 60
     integrations:
       app_store_connect: "ASC"
@@ -7,7 +8,7 @@
       xcode: latest
       node: 20
       groups:
-        - ios_signing1   # P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
+        - ios_signing1   # must contain: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
@@ -19,20 +20,17 @@
           npm ci
           npm run build
           npx cap sync ios
-
       - name: Install CocoaPods
         script: |
           set -e
           cd ios/App
           pod install --repo-update
-
       - name: Write signing files from env (Ad Hoc)
         script: |
           set -e
           mkdir -p $CM_BUILD_DIR/signing
           echo "$P12_BASE64"           | base64 --decode > $CM_BUILD_DIR/signing/cert.p12
           echo "$PROFILE_ADHOC_BASE64" | base64 --decode > $CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision
-
       - name: Import certificate to keychain
         script: |
           set -e
@@ -46,7 +44,126 @@
           security import $CM_BUILD_DIR/signing/cert.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
+      - name: Install Ad Hoc profile & apply to App target only; keep Pods Automatic
+        script: |
+          set -e
+          PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PROFILE_SRC" ~/Library/MobileDevice/Provisioning\ Profiles/
 
+          # Map profile to App target (Codemagic helper avoids touching Pods)
+          xcode-project use-profiles
+
+          # Ensure Pods don’t have manual profiles set
+          PBX="ios/App/Pods/Pods.xcodeproj/project.pbxproj"
+          cp "$PBX" "$PBX.bak" || true
+          /usr/bin/sed -i '' '/PROVISIONING_PROFILE_SPECIFIER = /d' "$PBX" || true
+          /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g' "$PBX" || true
+      - name: Clean & set build number
+        script: |
+          set -e
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date -u +%Y%m%d%H%M%S)" ios/App/App/Info.plist
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release clean
+      - name: Archive (no profile flag passed)
+        script: |
+          set -euo pipefail
+          source $CM_BUILD_DIR/keychain_path.env
+          cd ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath $PWD/build/App.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} \
+            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            archive
+      - name: Manually package Ad Hoc IPA (re-sign frameworks w/o profiles)
+        script: |
+          set -euo pipefail
+          source $CM_BUILD_DIR/keychain_path.env
+          cd ios/App
+          ARCHIVE="$PWD/build/App.xcarchive"
+          APP_PATH="$ARCHIVE/Products/Applications/App.app"
+          OUT_DIR="$PWD/build/adhoc"
+          ENT_PLIST="$PWD/entitlements.plist"
+          IDENTITY="Apple Distribution: Patrick Obrien (J5K98H247G)"
+          PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
+
+          cp "$PROFILE_SRC" "$APP_PATH/embedded.mobileprovision"
+          /usr/bin/codesign -d --entitlements :- "$APP_PATH/App" > "$ENT_PLIST" || true
+
+          if [ -d "$APP_PATH/Frameworks" ]; then
+            find "$APP_PATH/Frameworks" -type d -name "*.framework" | while read -r FRAME; do
+              /usr/bin/codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN_PATH" "$FRAME"
+            done
+          fi
+
+          /usr/bin/codesign --force --sign "$IDENTITY" --entitlements "$ENT_PLIST" --keychain "$KEYCHAIN_PATH" "$APP_PATH"
+          /usr/bin/codesign --verify --deep --strict "$APP_PATH" || { echo "codesign verify failed"; exit 1; }
+
+          rm -rf "$OUT_DIR"
+          mkdir -p "$OUT_DIR/Payload"
+          cp -R "$APP_PATH" "$OUT_DIR/Payload/App.app"
+          (cd "$OUT_DIR" && zip -yr "App-AdHoc.ipa" "Payload")
+          ls -la "$OUT_DIR"
+    artifacts:
+      - ios/App/build/adhoc/App-AdHoc.ipa
+      - ios/App/build/**/*.dSYM.zip
+    publishing:
+      email:
+        recipients:
+          - patobrien2017@gmail.com
+
+  ios-adhoc-diagnose:
+    name: iOS Ad Hoc (diagnostic build)
+    max_build_duration: 60
+    integrations:
+      app_store_connect: "ASC"
+    environment:
+      xcode: latest
+      node: 20
+      groups:
+        - ios_signing1
+      vars:
+        BUNDLE_ID: "org.greystreet.app"
+        PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
+        DEVELOPMENT_TEAM: "J5K98H247G"
+    scripts:
+      - name: Install deps & build web + sync Capacitor
+        script: |
+          set -e
+          npm ci
+          npm run build
+          npx cap sync ios
+      - name: Install CocoaPods
+        script: |
+          set -e
+          cd ios/App
+          pod install --repo-update
+      - name: Write signing files from env (Ad Hoc)
+        script: |
+          set -e
+          mkdir -p $CM_BUILD_DIR/signing
+          echo "$P12_BASE64"           | base64 --decode > $CM_BUILD_DIR/signing/cert.p12
+          echo "$PROFILE_ADHOC_BASE64" | base64 --decode > $CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision
+      - name: Import certificate to keychain
+        script: |
+          set -e
+          KEYCHAIN=build.keychain
+          KEYCHAIN_PATH=~/Library/Keychains/${KEYCHAIN}-db
+          security create-keychain -p "" "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security list-keychains -s "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security import $CM_BUILD_DIR/signing/cert.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
       - name: Install Ad Hoc profile & print basics
         script: |
           set -e
@@ -65,7 +182,6 @@
             *"org.greystreet.app") echo "AppID OK";;
             *) echo "ERROR: Profile AppID mismatch: $APPID"; exit 1;;
           esac
-
       - name: Apply profile to App target only & scrub Pods
         script: |
           set -e
@@ -74,16 +190,13 @@
           cp "$PBX" "$PBX.bak" || true
           /usr/bin/sed -i '' '/PROVISIONING_PROFILE_SPECIFIER = /d' "$PBX" || true
           /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g' "$PBX" || true
-          echo "Scrubbed Pods provisioning settings."
-
       - name: Clean & set build number
         script: |
           set -e
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date -u +%Y%m%d%H%M%S)" ios/App/App/Info.plist
           cd ios/App
           xcodebuild -workspace App.xcworkspace -scheme App -configuration Release clean
-
-      - name: Archive (no profile flag here)
+      - name: Archive (no profile flag)
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
@@ -100,7 +213,6 @@
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             archive
-
       - name: Re-sign frameworks (no profile) & app (with entitlements), then package IPA
         script: |
           set -euo pipefail
@@ -120,11 +232,9 @@
           cat "$ENT_PLIST" || true
           if [ -d "$APP_PATH/Frameworks" ]; then
             find "$APP_PATH/Frameworks" -type d -name "*.framework" | while read -r FRAME; do
-              echo "Re-signing framework: $FRAME"
               /usr/bin/codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN_PATH" "$FRAME"
             done
           fi
-          echo "Re-signing App with entitlements"
           /usr/bin/codesign --force --sign "$IDENTITY" --entitlements "$ENT_PLIST" --keychain "$KEYCHAIN_PATH" "$APP_PATH"
           /usr/bin/codesign --verify --deep --strict "$APP_PATH" || { echo "codesign verify failed"; exit 1; }
           echo "=== POST-SIGN ENTITLEMENTS FROM BINARY ==="
@@ -133,9 +243,7 @@
           mkdir -p "$OUT_DIR/Payload"
           cp -R "$APP_PATH" "$OUT_DIR/Payload/App.app"
           (cd "$OUT_DIR" && zip -yr "App-AdHoc-DIAG.ipa" "Payload")
-          echo "IPA at: $OUT_DIR/App-AdHoc-DIAG.ipa"
           ls -la "$OUT_DIR"
-
     artifacts:
       - ios/App/build/adhoc_diag/App-AdHoc-DIAG.ipa
       - ios/App/build/**/*.xcarchive
