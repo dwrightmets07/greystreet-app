@@ -1,6 +1,6 @@
 workflows:
-  ios-adhoc:
-    name: iOS Ad Hoc (direct device install)
+  ios-adhoc-diagnose:
+    name: iOS Ad Hoc (diagnostic build)
     max_build_duration: 60
     integrations:
       app_store_connect: "ASC"
@@ -8,7 +8,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1     # needs: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
+        - ios_signing1   # P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64 must be set here
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
@@ -52,36 +52,41 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
 
-      - name: Install Ad Hoc profile & wire to App target (Pods stay Automatic)
+      - name: Install Ad Hoc profile & sanity-print its contents
         script: |
           set -e
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PROFILE_SRC" ~/Library/MobileDevice/Provisioning\ Profiles/
-          TMP_PLIST="$CM_BUILD_DIR/adhoc.plist"
-          security cms -D -i "$PROFILE_SRC" > "$TMP_PLIST"
-          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" 2>/dev/null || echo "")
-          case "$APP_ID" in
-            *"$BUNDLE_ID") ;;
-            *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
-          esac
-          # Wire the profile to the App target only; Pods remain Automatic
-          xcode-project use-profiles
 
-      - name: Clean before build
+          TMP_PLIST="$CM_BUILD_DIR/adhoc_profile.plist"
+          security cms -D -i "$PROFILE_SRC" > "$TMP_PLIST"
+
+          echo "=== PROFILE BASICS ==="
+          /usr/libexec/PlistBuddy -c 'Print:Name' "$TMP_PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Print:TeamIdentifier:0' "$TMP_PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Print:ProvisionsAllDevices' "$TMP_PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" || true
+          echo "=== FIRST & LAST DEVICE UDIDs (redacted) ==="
+          /usr/libexec/PlistBuddy -c 'Print:ProvisionedDevices:0' "$TMP_PLIST" | sed 's/.......$/***REDACTED/' || true
+          /usr/libexec/PlistBuddy -c 'Print:ProvisionedDevices' "$TMP_PLIST" | tail -n 1 | sed 's/.......$/***REDACTED/' || true
+
+          # Quick check: app id in profile must match bundle id
+          APPID=$(/usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" || echo "")
+          case "$APPID" in
+            *"org.greystreet.app") echo "AppID OK: $APPID" ;;
+            *) echo "ERROR: Profile AppID mismatch: $APPID"; exit 1 ;;
+          esac
+
+      - name: Clean & set build number
         script: |
           set -e
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date -u +%Y%m%d%H%M%S)" ios/App/App/Info.plist
           cd ios/App
           xcodebuild -workspace App.xcworkspace -scheme App -configuration Release clean
 
-      - name: Bump build number (timestamp)
-        script: |
-          set -e
-          BUILD_TS=$(date -u +%Y%m%d%H%M%S)
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
-          echo "CFBundleVersion set to $BUILD_TS"
-
-      - name: Archive (manual signing for App only)
+      - name: Archive
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
@@ -99,7 +104,7 @@ workflows:
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             archive
 
-      - name: 🔧 Manually package Ad Hoc IPA (re-sign frameworks w/o profiles)
+      - name: Re-sign frameworks (no profile) & app (with entitlements) then package IPA
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
@@ -107,23 +112,20 @@ workflows:
 
           ARCHIVE="$PWD/build/App.xcarchive"
           APP_PATH="$ARCHIVE/Products/Applications/App.app"
-          OUT_DIR="$PWD/build/adhoc"
+          OUT_DIR="$PWD/build/adhoc_diag"
           ENT_PLIST="$PWD/entitlements.plist"
-          IDENTITY="Apple Distribution: Patrick Obrien (J5K98H247G)"
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
+          IDENTITY="Apple Distribution: Patrick Obrien (J5K98H247G)"
 
-          if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: App.app not found in archive."
-            exit 1
-          fi
-
-          # Embed Ad Hoc profile into the app
           cp "$PROFILE_SRC" "$APP_PATH/embedded.mobileprovision"
+          /usr/bin/codesign -d --entitlements :- "$APP_PATH/App" > "$ENT_PLIST" || true
 
-          # Extract entitlements from the archived app binary
-          /usr/bin/codesign -d --entitlements :- "$APP_PATH/App" > "$ENT_PLIST"
+          echo "=== SIGNING IDENTITY LIST ==="
+          security find-identity -p codesigning -v || true
 
-          # Re-sign all embedded frameworks WITHOUT any provisioning profile
+          echo "=== ENTITLEMENTS THAT WILL BE USED ==="
+          cat "$ENT_PLIST" || true
+
           if [ -d "$APP_PATH/Frameworks" ]; then
             find "$APP_PATH/Frameworks" -type d -name "*.framework" | while read -r FRAME; do
               echo "Re-signing framework: $FRAME"
@@ -131,26 +133,24 @@ workflows:
             done
           fi
 
-          # Re-sign the main app with entitlements (no profile flag here)
-          echo "Re-signing app binary with entitlements"
+          echo "Re-signing App with entitlements"
           /usr/bin/codesign --force --sign "$IDENTITY" --entitlements "$ENT_PLIST" --keychain "$KEYCHAIN_PATH" "$APP_PATH"
-
-          # Verify code signatures
           /usr/bin/codesign --verify --deep --strict "$APP_PATH" || { echo "codesign verify failed"; exit 1; }
 
-          # Create IPA: Payload/App.app zipped
+          echo "=== POST-SIGN ENTITLEMENTS FROM BINARY ==="
+          /usr/bin/codesign -d --entitlements :- "$APP_PATH/App" || true
+
           rm -rf "$OUT_DIR"
           mkdir -p "$OUT_DIR/Payload"
           cp -R "$APP_PATH" "$OUT_DIR/Payload/App.app"
-          (cd "$OUT_DIR" && zip -yr "App-AdHoc.ipa" "Payload")
-
-          echo "IPA created at: $OUT_DIR/App-AdHoc.ipa"
+          (cd "$OUT_DIR" && zip -yr "App-AdHoc-DIAG.ipa" "Payload")
+          echo "IPA at: $OUT_DIR/App-AdHoc-DIAG.ipa"
           ls -la "$OUT_DIR"
 
     artifacts:
-      - ios/App/build/adhoc/App-AdHoc.ipa
-      - ios/App/build/**/*.dSYM.zip
-
+      - ios/App/build/adhoc_diag/App-AdHoc-DIAG.ipa
+      - ios/App/build/**/*.xcarchive
+      - ios/App/build/adhoc_diag/entitlements.plist
     publishing:
       email:
         recipients:
