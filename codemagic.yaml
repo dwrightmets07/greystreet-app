@@ -8,7 +8,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1   # P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64 must be set here
+        - ios_signing1   # P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
@@ -52,7 +52,7 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
 
-      - name: Install Ad Hoc profile & sanity-print its contents
+      - name: Install Ad Hoc profile, print details, and EXTRACT UUID
         script: |
           set -e
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
@@ -63,21 +63,21 @@ workflows:
           security cms -D -i "$PROFILE_SRC" > "$TMP_PLIST"
 
           echo "=== PROFILE BASICS ==="
-          /usr/libexec/PlistBuddy -c 'Print:Name' "$TMP_PLIST" || true
-          /usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST" || true
-          /usr/libexec/PlistBuddy -c 'Print:TeamIdentifier:0' "$TMP_PLIST" || true
-          /usr/libexec/PlistBuddy -c 'Print:ProvisionsAllDevices' "$TMP_PLIST" || true
-          /usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" || true
-          echo "=== FIRST & LAST DEVICE UDIDs (redacted) ==="
-          /usr/libexec/PlistBuddy -c 'Print:ProvisionedDevices:0' "$TMP_PLIST" | sed 's/.......$/***REDACTED/' || true
-          /usr/libexec/PlistBuddy -c 'Print:ProvisionedDevices' "$TMP_PLIST" | tail -n 1 | sed 's/.......$/***REDACTED/' || true
+          echo "Name: $(/usr/libexec/PlistBuddy -c 'Print:Name' "$TMP_PLIST" || true)"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST")
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c 'Print:TeamIdentifier:0' "$TMP_PLIST" || true)
+          APPID=$(/usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" || true)
+          echo "UUID: $PROFILE_UUID"
+          echo "Team: $TEAM_ID"
+          echo "application-identifier: $APPID"
 
-          # Quick check: app id in profile must match bundle id
-          APPID=$(/usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" || echo "")
           case "$APPID" in
-            *"org.greystreet.app") echo "AppID OK: $APPID" ;;
-            *) echo "ERROR: Profile AppID mismatch: $APPID"; exit 1 ;;
+            *"org.greystreet.app") echo "AppID OK";;
+            *) echo "ERROR: Profile AppID mismatch: $APPID"; exit 1;;
           esac
+
+          # Export for later steps
+          echo "PROFILE_UUID=$PROFILE_UUID" > $CM_BUILD_DIR/profile_uuid.env
 
       - name: Clean & set build number
         script: |
@@ -86,10 +86,11 @@ workflows:
           cd ios/App
           xcodebuild -workspace App.xcworkspace -scheme App -configuration Release clean
 
-      - name: Archive
+      - name: Archive (now using profile UUID)
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
+          source $CM_BUILD_DIR/profile_uuid.env
           cd ios/App
           xcodebuild \
             -workspace App.xcworkspace \
@@ -102,6 +103,7 @@ workflows:
             PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             archive
 
       - name: Re-sign frameworks (no profile) & app (with entitlements) then package IPA
