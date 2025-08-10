@@ -52,7 +52,7 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
 
-      - name: Install Ad Hoc profile & apply to App target (Pods stay Automatic)
+      - name: Install Ad Hoc profile & wire to App target (Pods stay Automatic)
         script: |
           set -e
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
@@ -65,10 +65,19 @@ workflows:
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
           esac
-          # Wire the profile to App target; Pods remain Automatic
+          # Wire profile to App target only
           xcode-project use-profiles
-          cd ios/App
-          xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | egrep "PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM" || true
+
+      - name: Ensure Pods have NO provisioning profile (scrub Pods project)
+        script: |
+          set -e
+          PBX="ios/App/Pods/Pods.xcodeproj/project.pbxproj"
+          cp "$PBX" "$PBX.bak" || true
+          # Remove any explicit provisioning profile specifier lines in Pods
+          /usr/bin/sed -i '' '/PROVISIONING_PROFILE_SPECIFIER = /d' "$PBX" || true
+          # Force Pods code sign style to Automatic (if any Manual slipped in)
+          /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g' "$PBX" || true
+          echo "Scrubbed Pods provisioning settings."
 
       - name: Clean before build
         script: |
@@ -83,7 +92,25 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
           echo "CFBundleVersion set to $BUILD_TS"
 
-      - name: Write exportOptions.plist to disk
+      - name: Archive (manual signing for App only)
+        script: |
+          set -euo pipefail
+          source $CM_BUILD_DIR/keychain_path.env
+          cd ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath $PWD/build/App.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} \
+            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            archive
+
+      - name: Export Ad Hoc IPA (map profile only for app bundle id)
         script: |
           set -e
           cd ios/App
@@ -96,8 +123,6 @@ workflows:
               <string>ad-hoc</string>
               <key>signingStyle</key>
               <string>manual</string>
-              <key>signingCertificate</key>
-              <string>Apple Distribution</string>
               <key>teamID</key>
               <string>J5K98H247G</string>
               <key>provisioningProfiles</key>
@@ -105,10 +130,6 @@ workflows:
                 <key>org.greystreet.app</key>
                 <string>GreyStreet_AdHoc_Profile</string>
               </dict>
-              <key>manageAppVersionAndBuildNumber</key>
-              <false/>
-              <key>destination</key>
-              <string>export</string>
               <key>stripSwiftSymbols</key>
               <true/>
               <key>compileBitcode</key>
@@ -116,29 +137,21 @@ workflows:
             </dict>
           </plist>
           EOF
-          ls -la exportOptions.plist
 
-      - name: Build & export Ad Hoc IPA via helper
-        script: |
-          set -euo pipefail
-          source $CM_BUILD_DIR/keychain_path.env
-          cd ios/App
-          xcode-project build-ipa \
-            --workspace App.xcworkspace \
-            --scheme App \
-            --archive-flags="-destination 'generic/platform=iOS' CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} CODE_SIGN_IDENTITY='Apple Distribution' OTHER_CODE_SIGN_FLAGS='--keychain $KEYCHAIN_PATH'" \
-            --export-options-plist exportOptions.plist
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/App.xcarchive \
+            -exportOptionsPlist $PWD/exportOptions.plist \
+            -exportPath $PWD/build/export
 
-      - name: Show exported files
+      - name: Print where your IPA is
         script: |
           set -e
-          ls -la ios/App/build || true
-          ls -la ios/App/build/ipa || true
-          ls -la ios/App/build/export || true
+          ls -la ios/App/build/export
+          echo "Ad Hoc IPA ready at ios/App/build/export/"
 
     artifacts:
-      - ios/App/build/**/*.ipa
-      - ios/App/build/**/*.dSYM.zip
+      - ios/App/build/export/*.ipa
+      - ios/App/build/export/*.dSYM.zip
 
     publishing:
       email:
