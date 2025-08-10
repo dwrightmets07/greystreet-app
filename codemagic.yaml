@@ -8,7 +8,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1     # must contain: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
+        - ios_signing1     # needs: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
@@ -52,7 +52,7 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
 
-      - name: Install Ad Hoc profile & validate (capture UUID for logs only)
+      - name: Install Ad Hoc profile & apply to App target (Pods stay Automatic)
         script: |
           set -e
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
@@ -65,21 +65,11 @@ workflows:
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
           esac
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST" 2>/dev/null || echo "")
-          echo "AdHoc PROFILE_UUID (for reference): $PROFILE_UUID"
-
-      - name: Apply profile to project (App target only; keep Pods Automatic)
-        script: |
-          set -e
-          # This tool scans installed profiles and wires the matching one
-          # to the App target by bundle id. Pods remain Automatic.
           xcode-project use-profiles
-          # Show build settings to confirm only App target is affected
           cd ios/App
-          xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | \
-            egrep "PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM" || true
+          xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | egrep "PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM" || true
 
-      - name: Clean before archive (avoid stale settings)
+      - name: Clean before archive
         script: |
           set -e
           cd ios/App
@@ -92,7 +82,7 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
           echo "CFBundleVersion set to $BUILD_TS"
 
-      - name: Build signed Ad Hoc IPA (no specifier; let project settings apply)
+      - name: Build signed Ad Hoc archive
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
@@ -110,7 +100,10 @@ workflows:
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             archive
 
-          # Export with ad-hoc method (maps by bundle id to profile name)
+      - name: Export Ad Hoc IPA (explicit signing options)
+        script: |
+          set -e
+          cd ios/App
           cat > $PWD/exportOptions.plist <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -118,11 +111,21 @@ workflows:
             <dict>
               <key>method</key>
               <string>ad-hoc</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
+              <key>teamID</key>
+              <string>J5K98H247G</string>
               <key>provisioningProfiles</key>
               <dict>
                 <key>org.greystreet.app</key>
                 <string>GreyStreet_AdHoc_Profile</string>
               </dict>
+              <key>manageAppVersionAndBuildNumber</key>
+              <false/>
+              <key>destination</key>
+              <string>export</string>
               <key>stripSwiftSymbols</key>
               <true/>
               <key>compileBitcode</key>
