@@ -1,4 +1,4 @@
- ios-adhoc-diagnose:
+  ios-adhoc-diagnose:
     name: iOS Ad Hoc (diagnostic build)
     max_build_duration: 60
     integrations:
