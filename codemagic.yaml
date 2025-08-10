@@ -8,7 +8,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1     # needs: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
+        - ios_signing1     # must contain: P12_BASE64, P12_PASSWORD, PROFILE_ADHOC_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_ADHOC_NAME: "GreyStreet_AdHoc_Profile"
@@ -52,7 +52,7 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" > $CM_BUILD_DIR/keychain_path.env
 
-      - name: Install Ad Hoc profile & sanity-check
+      - name: Install Ad Hoc profile, validate & capture UUID
         script: |
           set -e
           PROFILE_SRC="$CM_BUILD_DIR/signing/${PROFILE_ADHOC_NAME}.mobileprovision"
@@ -60,11 +60,20 @@ workflows:
           cp "$PROFILE_SRC" ~/Library/MobileDevice/Provisioning\ Profiles/
           TMP_PLIST="$CM_BUILD_DIR/adhoc.plist"
           security cms -D -i "$PROFILE_SRC" > "$TMP_PLIST"
+
           APP_ID=$(/usr/libexec/PlistBuddy -c 'Print:Entitlements:application-identifier' "$TMP_PLIST" 2>/dev/null || echo "")
           case "$APP_ID" in
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
           esac
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST" 2>/dev/null || echo "")
+          if [ -z "$PROFILE_UUID" ]; then
+            echo "ERROR: Could not read profile UUID"
+            exit 1
+          fi
+          echo "PROFILE_UUID=$PROFILE_UUID"
+          echo "PROFILE_UUID=$PROFILE_UUID" > $CM_BUILD_DIR/adhoc_uuid.env
 
       - name: Bump build number (timestamp)
         script: |
@@ -73,10 +82,11 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
           echo "CFBundleVersion set to $BUILD_TS"
 
-      - name: Build signed Ad Hoc IPA
+      - name: Build signed Ad Hoc IPA (apply profile UUID)
         script: |
           set -euo pipefail
           source $CM_BUILD_DIR/keychain_path.env
+          source $CM_BUILD_DIR/adhoc_uuid.env
           cd ios/App
           xcodebuild \
             -workspace App.xcworkspace \
@@ -86,6 +96,8 @@ workflows:
             -archivePath $PWD/build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} \
+            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} \
+            PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             archive
