@@ -1,6 +1,6 @@
 workflows:
-  ios-dev-clean:
-    name: iOS Development (clean export)
+  ios-dev-clean2:
+    name: iOS Development (clean export via XML plist)
     max_build_duration: 60
     environment:
       xcode: latest
@@ -49,26 +49,41 @@ workflows:
             SKIP_INSTALL=NO \
             archive
 
-      - name: Create exportOptions.plist (development)
+      - name: Create exportOptions.dev.plist (XML)
         script: |
           set -e
           PLIST_PATH="ios/App/exportOptions.dev.plist"
-          rm -f "$PLIST_PATH"
-          # Create a fresh root dict
-          /usr/libexec/PlistBuddy -c 'Add : dict' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :method string development' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :signingStyle string manual' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :teamID string J5K98H247G' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :destination string export' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :signingCertificate string Apple Development' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :stripSwiftSymbols bool true' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :compileBitcode bool false' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add :manageAppVersionAndBuildNumber bool false' "$PLIST_PATH"
-          # Map profile ONLY to the app bundle id
-          /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${DEV_PROFILE_NAME}" "$PLIST_PATH"
+          cat > "$PLIST_PATH" <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>J5K98H247G</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>signingCertificate</key>
+            <string>Apple Development</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>org.greystreet.app</key>
+              <string>GreyStreet_Dev_Profile</string>
+            </dict>
+          </dict>
+          </plist>
+          XML
           echo "=== exportOptions.dev.plist (xml) ==="
-          plutil -convert xml1 "$PLIST_PATH" -o -
+          cat "$PLIST_PATH"
           echo "=== plutil -lint ==="
           plutil -lint "$PLIST_PATH"
 
