@@ -158,7 +158,7 @@ workflows:
           case "$APP_ID" in
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Profile app id ($APP_ID) does not match bundle ($BUNDLE_ID)"; exit 1 ;;
-          esac>
+          esac
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' "$TMP_PLIST" 2>/dev/null || echo "")
           if [ -z "$PROFILE_UUID" ]; then
             echo "ERROR: Could not extract UUID from profile."
@@ -237,3 +237,4 @@ workflows:
       email:
         recipients:
           - patobrien2017@gmail.com
+
