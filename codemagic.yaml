@@ -53,19 +53,21 @@ workflows:
         script: |
           set -e
           PLIST_PATH="ios/App/exportOptions.dev.plist"
-          # Start a new plist
-          /usr/libexec/PlistBuddy -c 'Clear dict' "$PLIST_PATH" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c 'Add : method string development' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : signingStyle string manual' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : signingCertificate string Apple Development' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : teamID string J5K98H247G' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : destination string export' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : stripSwiftSymbols bool true' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : compileBitcode bool false' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : manageAppVersionAndBuildNumber bool false' "$PLIST_PATH"
+          rm -f "$PLIST_PATH"
+          # create root dict
+          /usr/libexec/PlistBuddy -c 'Add : dict' "$PLIST_PATH"
+          # simple keys
+          /usr/libexec/PlistBuddy -c 'Add :method string development' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :signingStyle string manual' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :signingCertificate string Apple Development' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :teamID string J5K98H247G' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :destination string export' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :stripSwiftSymbols bool true' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :compileBitcode bool false' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :manageAppVersionAndBuildNumber bool false' "$PLIST_PATH"
           # provisioningProfiles dict
-          /usr/libexec/PlistBuddy -c 'Add : provisioningProfiles dict' "$PLIST_PATH"
-          /usr/libexec/PlistBuddy -c 'Add : provisioningProfiles:org.greystreet.app string GreyStreet_Dev_Profile' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles:org.greystreet.app string GreyStreet_Dev_Profile' "$PLIST_PATH"
           echo "Wrote $PLIST_PATH"
           /usr/libexec/PlistBuddy -c 'Print' "$PLIST_PATH"
 
