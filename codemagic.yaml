@@ -1,6 +1,6 @@
 workflows:
-  ios-development:
-    name: iOS Development (direct install)
+  ios-dev-clean:
+    name: iOS Development (clean export)
     max_build_duration: 60
     environment:
       xcode: latest
@@ -49,29 +49,46 @@ workflows:
             SKIP_INSTALL=NO \
             archive
 
-      - name: Export Development IPA (via xcode-project helper)
+      - name: Create exportOptions.plist (development)
+        script: |
+          set -e
+          PLIST_PATH="ios/App/exportOptions.dev.plist"
+          rm -f "$PLIST_PATH"
+          # Create a fresh root dict
+          /usr/libexec/PlistBuddy -c 'Add : dict' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :method string development' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :signingStyle string manual' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :teamID string J5K98H247G' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :destination string export' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :signingCertificate string Apple Development' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :stripSwiftSymbols bool true' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :compileBitcode bool false' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add :manageAppVersionAndBuildNumber bool false' "$PLIST_PATH"
+          # Map profile ONLY to the app bundle id
+          /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${DEV_PROFILE_NAME}" "$PLIST_PATH"
+          echo "=== exportOptions.dev.plist (xml) ==="
+          plutil -convert xml1 "$PLIST_PATH" -o -
+          echo "=== plutil -lint ==="
+          plutil -lint "$PLIST_PATH"
+
+      - name: Export Development IPA (xcodebuild)
         script: |
           set -euo pipefail
           cd ios/App
-          # Build IPA using Codemagic's helper, passing export options as flags (no plist)
-          xcode-project build-ipa \
-            --workspace "$IOS_WORKSPACE" \
-            --scheme "$IOS_SCHEME" \
-            --archive-flags="-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' SKIP_INSTALL=NO PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID" \
-            --export-options "method=development,signingStyle=manual,signingCertificate=Apple Development,teamID=$DEVELOPMENT_TEAM,provisioningProfiles.$BUNDLE_ID=$DEV_PROFILE_NAME,stripSwiftSymbols=true,compileBitcode=false,manageAppVersionAndBuildNumber=false"
-
+          xcodebuild -exportArchive \
+            -archivePath "$PWD/build/AppDev.xcarchive" \
+            -exportPath "$PWD/build/dev_export" \
+            -exportOptionsPlist "$PWD/exportOptions.dev.plist"
           echo "=== Exported files ==="
-          ls -la build/ios/ipa || true
-          ls -la build || true
+          ls -la "$PWD/build/dev_export"
 
       - name: Sanity print (embedded profile UUID + devices)
         script: |
           set -e
-          IPA_GLOB="build/ios/ipa/*.ipa"
-          IPA_PATH=$(ls $IPA_GLOB | head -n 1)
-          echo "IPA: $IPA_PATH"
+          IPA="ios/App/build/dev_export/App.ipa"
           TMP="$(mktemp -d)"
-          cp "$IPA_PATH" "$TMP/App.zip"
+          cp "$IPA" "$TMP/App.zip"
           unzip -q "$TMP/App.zip" -d "$TMP/unz"
           PROV="$TMP/unz/Payload/App.app/embedded.mobileprovision"
           echo "=== Dev Profile UUID ==="
@@ -80,9 +97,9 @@ workflows:
           /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' /dev/stdin <<< "$(security cms -D -i "$PROV")" 2>/dev/null | head -n 20 || echo "No devices list"
 
     artifacts:
-      - ios/App/build/ios/ipa/*.ipa
+      - ios/App/build/dev_export/*.ipa
       - ios/App/build/AppDev.xcarchive
-      - ios/App/build/**/*.log
+      - ios/App/exportOptions.dev.plist
 
     publishing:
       email:
