@@ -1,6 +1,6 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (signed)
+    name: iOS TestFlight (signed, no auto external submit)
     max_build_duration: 60
     integrations:
       app_store_connect: "ASC"
@@ -8,7 +8,7 @@ workflows:
       xcode: latest
       node: 20
       groups:
-        - ios_signing1           # contains P12_BASE64, P12_PASSWORD, PROFILE_BASE64
+        - ios_signing1           # must contain: P12_BASE64, P12_PASSWORD, PROFILE_BASE64
       vars:
         BUNDLE_ID: "org.greystreet.app"
         PROFILE_NAME: "GreyStreet_Prod_Profile"
@@ -131,6 +131,35 @@ workflows:
           echo "CFBundleIdentifier: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST_PATH")"
           echo "CFBundleShortVersionString: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST_PATH")"
           echo "CFBundleVersion: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST_PATH")"
+
+      - name: Inspect IPA for install blockers
+        script: |
+          set -e
+          unzip -qq -o ios/App/build/export/App.ipa -d /tmp/ipa_extract
+          APP_DIR=$(ls -d /tmp/ipa_extract/Payload/*.app | head -n 1)
+          PLIST="$APP_DIR/Info.plist"
+          echo "----- Info.plist basics -----"
+          echo "CFBundleIdentifier: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
+          echo "CFBundleShortVersionString: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          echo "CFBundleVersion: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          echo "MinimumOSVersion: $(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST" 2>/dev/null || echo '(not set)')"
+          echo "UIDeviceFamily: $(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$PLIST" 2>/dev/null || echo '(not set)')"
+          echo "UIRequiredDeviceCapabilities: $(/usr/libexec/PlistBuddy -c 'Print :UIRequiredDeviceCapabilities' "$PLIST" 2>/dev/null || echo '(none)')"
+          echo "----- Binary architectures -----"
+          EXE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
+          file "$APP_DIR/$EXE" || true
+          lipo -info "$APP_DIR/$EXE" || true
+          echo "----- Embedded provisioning profile -----"
+          if [ -f "$APP_DIR/embedded.mobileprovision" ]; then
+            security cms -D -i "$APP_DIR/embedded.mobileprovision" > /tmp/emb.plist || true
+            echo "Profile Name: $(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/emb.plist 2>/dev/null || echo 'N/A')"
+            echo "Profile UUID: $(/usr/libexec/PlistBuddy -c 'Print :UUID' /tmp/emb.plist 2>/dev/null || echo 'N/A')"
+            echo "Entitlement app-identifier: $(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /tmp/emb.plist 2>/dev/null || echo 'N/A')"
+            echo "Team ID: $(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' /tmp/emb.plist 2>/dev/null || echo 'N/A')"
+            echo "get-task-allow (should be false): $(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' /tmp/emb.plist 2>/dev/null || echo 'N/A')"
+          else
+            echo "No embedded.mobileprovision found in IPA (unexpected)."
+          fi
 
     artifacts:
       - ios/App/build/export/*.ipa
