@@ -49,38 +49,25 @@ workflows:
             SKIP_INSTALL=NO \
             archive
 
-      - name: Create exportOptions.plist (development)
+      - name: Create exportOptions.plist (development, via PlistBuddy)
         script: |
           set -e
-          cat > ios/App/exportOptions.dev.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-            <dict>
-              <key>method</key>
-              <string>development</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>signingCertificate</key>
-              <string>Apple Development</string>
-              <key>teamID</key>
-              <string>J5K98H247G</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                <key>org.greystreet.app</key>
-                <string>GreyStreet_Dev_Profile</string>
-              </dict>
-              <key>destination</key>
-              <string>export</string>
-              <key>stripSwiftSymbols</key>
-              <true/>
-              <key>compileBitcode</key>
-              <false/>
-              <key>manageAppVersionAndBuildNumber</key>
-              <false/>
-            </dict>
-          </plist>
-          PLIST
+          PLIST_PATH="ios/App/exportOptions.dev.plist"
+          # Start a new plist
+          /usr/libexec/PlistBuddy -c 'Clear dict' "$PLIST_PATH" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c 'Add : method string development' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : signingStyle string manual' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : signingCertificate string Apple Development' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : teamID string J5K98H247G' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : destination string export' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : stripSwiftSymbols bool true' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : compileBitcode bool false' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : manageAppVersionAndBuildNumber bool false' "$PLIST_PATH"
+          # provisioningProfiles dict
+          /usr/libexec/PlistBuddy -c 'Add : provisioningProfiles dict' "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Add : provisioningProfiles:org.greystreet.app string GreyStreet_Dev_Profile' "$PLIST_PATH"
+          echo "Wrote $PLIST_PATH"
+          /usr/libexec/PlistBuddy -c 'Print' "$PLIST_PATH"
 
       - name: Export Development IPA (sign now)
         script: |
