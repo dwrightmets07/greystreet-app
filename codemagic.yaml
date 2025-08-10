@@ -1,6 +1,6 @@
 workflows:
-  ios-dev-clean2:
-    name: iOS Development (clean export via XML plist)
+  ios-dev-minimal:
+    name: iOS Development (minimal plist, validated)
     max_build_duration: 60
     environment:
       xcode: latest
@@ -10,7 +10,7 @@ workflows:
         DEVELOPMENT_TEAM: "J5K98H247G"
         IOS_WORKSPACE: "App.xcworkspace"
         IOS_SCHEME: "App"
-        DEV_PROFILE_NAME: "GreyStreet_Dev_Profile"
+        DEV_PROFILE_NAME: "GreyStreet_Dev_Profile"   # Exactly as it’s named in Apple Developer
     scripts:
       - name: Install deps, build web, sync Capacitor
         script: |
@@ -49,7 +49,7 @@ workflows:
             SKIP_INSTALL=NO \
             archive
 
-      - name: Create exportOptions.dev.plist (XML)
+      - name: Create exportOptions.dev.plist (super-minimal XML)
         script: |
           set -e
           PLIST_PATH="ios/App/exportOptions.dev.plist"
@@ -60,32 +60,37 @@ workflows:
           <dict>
             <key>method</key>
             <string>development</string>
-            <key>signingStyle</key>
-            <string>manual</string>
             <key>teamID</key>
             <string>J5K98H247G</string>
-            <key>destination</key>
-            <string>export</string>
-            <key>signingCertificate</key>
-            <string>Apple Development</string>
-            <key>stripSwiftSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <false/>
-            <key>manageAppVersionAndBuildNumber</key>
-            <false/>
             <key>provisioningProfiles</key>
             <dict>
               <key>org.greystreet.app</key>
               <string>GreyStreet_Dev_Profile</string>
             </dict>
+            <key>signingStyle</key>
+            <string>manual</string>
           </dict>
           </plist>
           XML
-          echo "=== exportOptions.dev.plist (xml) ==="
+
+          echo "=== exportOptions.dev.plist (as written) ==="
           cat "$PLIST_PATH"
-          echo "=== plutil -lint ==="
+
+          echo "=== Validate with plutil ==="
           plutil -lint "$PLIST_PATH"
+
+          echo "=== Print parsed dict with PlistBuddy ==="
+          /usr/libexec/PlistBuddy -c 'Print' "$PLIST_PATH"
+
+      - name: Check keychain & profiles before export
+        script: |
+          set -e
+          echo "=== Keychain identities (code signing) ==="
+          security find-identity -v -p codesigning || true
+          echo "=== Installed provisioning profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+          echo "=== Look for Dev profile by name ==="
+          grep -l "GreyStreet_Dev_Profile" ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | cat || true
 
       - name: Export Development IPA (xcodebuild)
         script: |
