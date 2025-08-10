@@ -45,5 +45,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+<string>Grey Street uses your photo library only when you choose a photo for your profile or sharing.</string>
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>Grey Street saves images to your library only when you ask it to export or save a photo.</string>
+<key>NSCameraUsageDescription</key>
+<string>Grey Street may use the camera only when you choose to take a photo.</string>
 </dict>
 </plist>
