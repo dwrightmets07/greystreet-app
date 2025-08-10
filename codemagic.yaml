@@ -65,7 +65,7 @@ workflows:
             *"$BUNDLE_ID") ;;
             *) echo "ERROR: Ad Hoc profile app id ($APP_ID) doesn't match $BUNDLE_ID"; exit 1 ;;
           esac
-          # Wire the profile to the App target only; Pods remain Automatic
+          # Wire the profile to App target; Pods remain Automatic
           xcode-project use-profiles
           cd ios/App
           xcodebuild -workspace App.xcworkspace -scheme App -showBuildSettings | egrep "PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM" || true
@@ -83,17 +83,11 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_TS" ios/App/App/Info.plist
           echo "CFBundleVersion set to $BUILD_TS"
 
-      - name: Build & export Ad Hoc IPA via helper (avoids framework profile errors)
+      - name: Write exportOptions.plist to disk
         script: |
-          set -euo pipefail
-          source $CM_BUILD_DIR/keychain_path.env
+          set -e
           cd ios/App
-          # Use Codemagic helper to handle export cleanly
-          xcode-project build-ipa \
-            --workspace App.xcworkspace \
-            --scheme App \
-            --archive-flags="-destination 'generic/platform=iOS' CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} CODE_SIGN_IDENTITY='Apple Distribution' OTHER_CODE_SIGN_FLAGS='--keychain $KEYCHAIN_PATH'" \
-            --export-options-plist "$(cat <<'EOF'
+          cat > exportOptions.plist <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -122,7 +116,18 @@ workflows:
             </dict>
           </plist>
           EOF
-          )"
+          ls -la exportOptions.plist
+
+      - name: Build & export Ad Hoc IPA via helper
+        script: |
+          set -euo pipefail
+          source $CM_BUILD_DIR/keychain_path.env
+          cd ios/App
+          xcode-project build-ipa \
+            --workspace App.xcworkspace \
+            --scheme App \
+            --archive-flags="-destination 'generic/platform=iOS' CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM} PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} CODE_SIGN_IDENTITY='Apple Distribution' OTHER_CODE_SIGN_FLAGS='--keychain $KEYCHAIN_PATH'" \
+            --export-options-plist exportOptions.plist
 
       - name: Show exported files
         script: |
